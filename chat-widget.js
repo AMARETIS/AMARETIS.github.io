@@ -473,7 +473,7 @@
         ? 'audio/webm; codecs=opus' 
         : 'audio/wav'; 
     // URL del webhook de transcripción
-    const VOICE_WEBHOOK_URL = `${config.webhook.url.replace(/\/chat$/, '')}/voice-input`; 
+    const VOICE_WEBHOOK_URL = "https://rpcnhez7y.app.n8n.cloud/webhook/voice-input"; 
     // --- FIN NUEVAS VARIABLES ---
 
     const widgetContainer = document.createElement('div');

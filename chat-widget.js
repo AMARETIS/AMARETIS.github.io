@@ -468,12 +468,12 @@
     // --- NUEVAS VARIABLES PARA MEDIA RECORDER (FALLBACK) ---
     let mediaRecorder;
     let audioChunks = [];
-    let mediaStream = null; // <-- CORRECCIÓN CLAVE: Almacena el stream de audio globalmente
+    let mediaStream = null; // Almacena el stream de audio globalmente
     let audioMimeType = MediaRecorder.isTypeSupported('audio/webm; codecs=opus') 
         ? 'audio/webm; codecs=opus' 
         : 'audio/wav'; 
     // URL del webhook de transcripción
-    const VOICE_WEBHOOK_URL = "https://rpcnhez7y.app.n8n.cloud/webhook/voice-input"; 
+    const VOICE_WEBHOOK_URL = `${config.webhook.url.replace(/\/chat$/, '')}/voice-input`; 
     // --- FIN NUEVAS VARIABLES ---
 
     const widgetContainer = document.createElement('div');
@@ -589,7 +589,7 @@
     const chatInputContainer = chatContainer.querySelector('.chat-input');
     const visualizerCanvas = chatContainer.querySelector('#audio-visualizer');
     const languageSelects = chatContainer.querySelectorAll('.language-select');
-    // ... (Selección de elementos closeButtons) ...
+    const closeButtons = chatContainer.querySelectorAll('.close-button');
 
     // SVGs para los iconos
     const micSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -646,10 +646,55 @@
     let source;
     let animationFrameId;
 
-    // --- FUNCIONES DE AUDIO VISUALIZER (Se mantienen) ---
-    function startAudioVisualizer() { /* ... (código existente) ... */ }
-    function stopAudioVisualizer() { /* ... (código existente) ... */ }
+    // --- FUNCIONES DE AUDIO VISUALIZER ---
+    function startAudioVisualizer() {
+        if (!visualizerCanvas) return;
+        const canvasCtx = visualizerCanvas.getContext('2d');
+        // ... (Tu código de visualizador existente) ...
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+            .then((stream) => {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                canvasCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+                function draw() {
+                    animationFrameId = requestAnimationFrame(draw);
+                    analyser.getByteFrequencyData(dataArray);
+                    canvasCtx.fillStyle = '#f8f8f8';
+                    canvasCtx.fillRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+                    const barWidth = (visualizerCanvas.width / bufferLength) * 2;
+                    let barHeight;
+                    let x = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        barHeight = dataArray[i] / 2.5;
+                        canvasCtx.fillStyle = getComputedStyle(widgetContainer).getPropertyValue('--chat--color-primary');
+                        canvasCtx.fillRect(x, visualizerCanvas.height - barHeight, barWidth, barHeight);
+                        x += barWidth + 1;
+                    }
+                }
+                draw();
+            })
+            .catch((err) => { console.error('Mic error (Visualizer):', err); });
+    }
+    function stopAudioVisualizer() {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        if (source && source.mediaStream) {
+            source.mediaStream.getTracks().forEach(track => track.stop());
+        }
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }
+        if(visualizerCanvas) {
+            const canvasCtx = visualizerCanvas.getContext('2d');
+            canvasCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+        }
+    }
     // --- FIN FUNCIONES DE AUDIO VISUALIZER ---
+
 
     // =================================================================
     // FUNCIÓN DE ENVÍO DE AUDIO AL BACKEND (ESTRATEGIA 2)
@@ -657,7 +702,7 @@
     async function sendAudioToBackend(audioBlob) {
         const formData = new FormData();
         formData.append('file', audioBlob, `audio.${audioMimeType.split('/')[1].split(';')[0]}`);
-        formData.append('lang', currentLang); // Enviar el idioma para la transcripción
+        formData.append('lang', currentLang);
 
         const loadingMessage = document.createElement('div');
         loadingMessage.className = 'chat-message bot loading-transcription';
@@ -759,7 +804,7 @@
                 alert(translations[currentLang.split('-')[0]].micUnsupported + " Por favor, permite el acceso al micrófono.");
             });
     }
-
+    
     // =================================================================
     // DETECCIÓN DE API NATIVA VS FALLBACK
     // =================================================================
@@ -830,8 +875,7 @@
         
     } else {
         // En navegadores NO compatibles (Fallback a MediaRecorder + Servidor)
-        micButton.title = translations[currentLang.split('-')[0]].micUnsupported + " (Modo Fallback)";
-        window.startVoiceRecording = startMediaRecording; // Asigna la función de grabación de audio
+        window.startVoiceRecording = startMediaRecording;
         window.stopVoiceRecording = stopMediaRecording;
     }
 

@@ -126,7 +126,7 @@
     // =================================================================
     async function sendAudioToBackend(audioBlob) {
         const formData = new FormData();
-        formData.append('file', audioBlob, `audio.${audioMimeType.split('/')[1].split(';')[0]}`);
+        formData.append('data', audioBlob, `audio.${audioMimeType.split('/')[1].split(';')[0]}`);
         formData.append('lang', currentLang); // Enviar el idioma corto ('de', 'en', 'es')
 
         const loadingMessage = document.createElement('div');

@@ -295,7 +295,7 @@
             stroke: currentColor;
             stroke-width: 2;
             stroke-linecap: round;
-            stroke-linejoin: round;
+            stroke-linejoin: round; 
         }
         .n8n-chat-widget .chat-input button:hover {
             transform: scale(1.05);
@@ -450,7 +450,7 @@
             sendTitle: "Nachricht senden",
             micUnsupported: "Spracherkennung nicht unterstützt",
             botGreeting: "Hallo! 👋 Ich bin Ihr persönlicher Assistent der Agentur für Kommunikation AMARETIS. Wir sind eine Full-Service-Werbeagentur mit Sitz in Göttingen und arbeiten für Kundinnen und Kunden in ganz Deutschland. Wie kann ich Ihnen heute weiterhelfen?",
-            transcribing: "Transcripción en curso..."
+            transcribing: "Transcripción en curso..." // Añadir traducción
         },
         en: {
             language: "English",
@@ -463,7 +463,7 @@
             sendTitle: "Send message",
             micUnsupported: "Speech recognition not supported",
             botGreeting: "Hello! 👋 I am your personal assistant from the AMARETIS communication agency. We are a full-service advertising agency based in Göttingen and work for clients throughout Germany. How can I help you today?",
-            transcribing: "Transcription in progress..."
+            transcribing: "Transcription in progress..." // Añadir traducción
         },
         es: {
             language: "Español",
@@ -476,7 +476,7 @@
             sendTitle: "Enviar mensaje",
             micUnsupported: "Reconocimiento de voz no soportado",
             botGreeting: "¡Hola! 👋 Soy tu asistente personal de la agencia de comunicación AMARETIS. Somos una agencia de publicidad de servicio completo con sede en Göttingen y trabajamos para clientes en toda Alemania. ¿En qué puedo ayudarte hoy?",
-            transcribing: "Transcripción en curso..."
+            transcribing: "Transcripción en curso..." // Añadir traducción
         }
     };
 
@@ -626,7 +626,7 @@
 
     // Selección de elementos del DOM
     const newChatBtn = chatContainer.querySelector('.new-chat-btn');
-    const newChatBtnTextSpan = newChatBtn.querySelector('span');
+    const newChatBtnTextSpan = newChatBtn.querySelector('span'); // CORRECCIÓN: Apuntar al span dentro de newChatBtn
     const newConversationWrapper = chatContainer.querySelector('.new-conversation-wrapper');
     const chatInterface = chatContainer.querySelector('.chat-interface');
     const privacyCheckbox = chatContainer.querySelector('#datenschutz');
@@ -662,7 +662,7 @@
 
     // Función para actualizar los textos del UI
     function updateUI() {
-        const langCode = currentLang; // Usar 'de', 'en', 'es'
+        const langCode = currentLang.split('-')[0]; // Usa el código corto 'de', 'en', 'es'
         const t = translations[langCode] || translations.de;
         
         chatContainer.querySelector('.welcome-text').textContent = t.welcomeText;
@@ -696,7 +696,7 @@
 
     let recognition;
     let isRecording = false;
-    let shouldSendMessageAfterStop = false;
+    let shouldSendMessageAfterStop = false; // Solo se usa para API Nativa
     let audioContext;
     let analyser;
     let source;
@@ -735,7 +735,15 @@
     
     function stopAudioVisualizer() {
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        // No cerramos el source o el audioContext aquí, se cierran cuando se detiene el mediaStream
+        // El source y audioContext se cierran cuando se detiene el mediaStream
+        if (source) {
+            source.disconnect();
+            source = null;
+        }
+         if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+            audioContext = null; 
+        }
         if(visualizerCanvas) {
             const canvasCtx = visualizerCanvas.getContext('2d');
             canvasCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
@@ -763,14 +771,14 @@
                 body: formData,
             });
 
-            messagesContainer.removeChild(loadingMessage); // Quitar mensaje de carga
+            messagesContainer.removeChild(loadingMessage); 
 
             if (response.ok) {
                 const data = await response.json();
                 if (data.status === 'ok' && data.transcription) {
                     textarea.value = data.transcription.trim();
                     if (textarea.value) {
-                        sendMessage(textarea.value); // Envía el texto transcrito
+                        sendMessage(textarea.value); 
                     } else {
                         const emptyMessage = createMessageElement(translations[langCode].micUnsupported + " No se detectó voz.", 'bot');
                         messagesContainer.appendChild(emptyMessage);
@@ -803,19 +811,17 @@
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop(); 
         } else {
-            // Si no se estaba grabando (ej. error al inicio), igual limpiar el stream si existe
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
                 mediaStream = null; 
             }
         }
         
-        // Actualiza la UI
         isRecording = false;
         micButton.innerHTML = micSVG;
         micButton.classList.remove('recording');
         chatInputContainer.classList.remove('is-recording');
-        stopAudioVisualizer(); // Detiene el visualizador
+        stopAudioVisualizer();
     }
 
     function startMediaRecording() {
@@ -871,20 +877,23 @@
 
     const useNativeSpeechRecognition = ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 
-    // --- CORRECCIÓN: Asignar SIEMPRE las funciones de MediaRecorder ---
-    // Decidimos usar MediaRecorder para todos los navegadores para consistencia.
+    // --- CORRECCIÓN: DECIDIMOS USAR SIEMPRE MEDIARECORDER ---
+    // if (useNativeSpeechRecognition) { ... } else { ... }
+    // Asignamos directamente las funciones de MediaRecorder para todos
+    
     window.startVoiceRecording = startMediaRecording;
     window.stopVoiceRecording = stopMediaRecording;
     
-    // NOTA: La lógica 'if (useNativeSpeechRecognition)' y 'recognition' se ha eliminado
-    // para forzar el uso de MediaRecorder (Estrategia 2) en todos los casos.
+    // Si la API Nativa existe, la deshabilitamos por si acaso
+    if (useNativeSpeechRecognition) {
+        recognition = null; // Nos aseguramos de no usarla
+    }
 
 
     // LÓGICA FINAL DEL BOTÓN DE MICRÓFONO
     micButton.addEventListener('click', () => {
         if (isRecording) {
-            // Ya no se necesita 'shouldSendMessageAfterStop' porque MediaRecorder
-            // envía automáticamente al detenerse ('onstop').
+            // Ya no se usa shouldSendMessageAfterStop, MediaRecorder envía al detenerse
             window.stopVoiceRecording(); 
         } else {
             window.startVoiceRecording(); 
@@ -900,7 +909,7 @@
         const data = [{ action: "loadPreviousSession", sessionId: currentSessionId, route: config.webhook.route, metadata: { userId: "" } }];
         try {
             const response = await fetch(config.webhook.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            await response.json(); // No usamos responseData, solo esperamos que termine
+            await response.json(); 
             newConversationWrapper.style.display = 'none';
             chatInterface.classList.add('active');
 
@@ -913,7 +922,7 @@
     }
 
     async function sendMessage(message) {
-        if (!message) return; // No enviar mensajes vacíos
+        if (!message) return;
         const langCode = currentLang.split('-')[0];
         const messageData = { action: "sendMessage", sessionId: currentSessionId, route: config.webhook.route, chatInput: message, metadata: { userId: "", lang: langCode } };
         
@@ -937,7 +946,7 @@
         }
     }
     
-    // Esta función ya no es necesaria si la corrección se hace en n8n
+    // Esta función ya no es necesaria
     // function correctTextRealtime(text) { ... }
 
     privacyCheckbox.addEventListener('change', () => { newChatBtn.disabled = !privacyCheckbox.checked; });
@@ -945,7 +954,6 @@
     languageSelects.forEach(select => {
         select.addEventListener('change', (e) => {
             currentLang = e.target.value;
-            // No es necesario actualizar recognition.lang porque ya no se usa
             updateUI();
         });
     });
@@ -953,18 +961,19 @@
     newChatBtn.addEventListener('click', startNewConversation);
     
     sendButton.addEventListener('click', () => {
-        const message = textarea.value.trim();
-        if (message && !isRecording) { // Solo enviar si no está grabando
-            sendMessage(message);
+        // Solo envía texto si no está grabando
+        if (!isRecording) {
+            const message = textarea.value.trim();
+            if (message) sendMessage(message);
         }
     });
 
     textarea.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            const message = textarea.value.trim();
-            if (message && !isRecording) { // Solo enviar si no está grabando
-                sendMessage(message);
+             if (!isRecording) {
+                const message = textarea.value.trim();
+                if (message) sendMessage(message);
             }
         }
     });

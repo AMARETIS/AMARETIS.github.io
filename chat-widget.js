@@ -1,4 +1,4 @@
-// Chat Widget Script
+// Chat Widget Script (Versión Corregida - Estrategia Combinada)
 (function() {
     // Definimos los estilos CSS para el chat
     const styles = `
@@ -47,7 +47,7 @@
             flex-shrink: 0;
         }
 
-        /* --- NUEVOS ESTILOS PARA EL CONTENEDOR DEL IDIOMA Y EL ICONO --- */
+        /* --- ESTILOS PARA EL CONTENEDOR DEL IDIOMA Y EL ICONO --- */
         .n8n-chat-widget .lang-selector-wrapper {
             position: relative;
             display: flex;
@@ -60,7 +60,7 @@
             fill: var(--chat--color-font);
             stroke: var(--chat--color-font);
             opacity: 0.6;
-            margin-right: -28px; /* Ajusta esto si el icono no se superpone bien */
+            margin-right: -28px;
             pointer-events: none;
         }
         .n8n-chat-widget .language-select {
@@ -75,7 +75,7 @@
             appearance: none;
             -webkit-appearance: none;
         }
-        /* --- FIN DE NUEVOS ESTILOS --- */
+        /* --- FIN DE ESTILOS --- */
 
         .n8n-chat-widget .close-button {
             background: none;
@@ -165,7 +165,7 @@
         .n8n-chat-widget .message-icon {
             width: 20px;
             height: 20px;
-            margin-right: 8px; /* Espacio entre icono y texto */
+            margin-right: 8px;
         }
         .n8n-chat-widget .response-text {
             font-size: 14px;
@@ -295,7 +295,7 @@
             stroke: currentColor;
             stroke-width: 2;
             stroke-linecap: round;
-            stroke-linejoin: round; 
+            stroke-linejoin: round;
         }
         .n8n-chat-widget .chat-input button:hover {
             transform: scale(1.05);
@@ -490,7 +490,9 @@
         style: { primaryColor: '#854fff', secondaryColor: '#6b3fd4', position: 'right', backgroundColor: '#ffffff', fontColor: '#333333' }
     };
 
-    // --- CORRECCIÓN: FUSIÓN DE CONFIGURACIÓN MÁS ROBUSTA ---
+    // =================================================================
+    // CORRECCIÓN: FUSIÓN DE CONFIGURACIÓN MÁS ROBUSTA
+    // =================================================================
     const config = {
         webhook: { ...defaultConfig.webhook },
         branding: { ...defaultConfig.branding },
@@ -499,7 +501,7 @@
 
     if (window.ChatWidgetConfig) {
         if (window.ChatWidgetConfig.webhook) {
-            config.webhook = { ...config.webhook, ...window.ChatWidgetConfig.webhook };
+            config.webhook = { ...config.webhook, ...window.ChatWidgetGConfig.webhook };
         }
         if (window.ChatWidgetConfig.branding) {
             config.branding = { ...config.branding, ...window.ChatWidgetConfig.branding };
@@ -696,7 +698,7 @@
 
     let recognition;
     let isRecording = false;
-    let shouldSendMessageAfterStop = false; // Solo se usa para API Nativa
+    let shouldSendMessageAfterStop = false;
     let audioContext;
     let analyser;
     let source;
@@ -735,14 +737,13 @@
     
     function stopAudioVisualizer() {
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        // El source y audioContext se cierran cuando se detiene el mediaStream
-        if (source) {
-            source.disconnect();
-            source = null;
+        if (source && source.mediaStream) {
+            source.mediaStream.getTracks().forEach(track => track.stop());
+            source = null; // Liberar la referencia
         }
          if (audioContext && audioContext.state !== 'closed') {
             audioContext.close();
-            audioContext = null; 
+            audioContext = null; // Liberar la referencia
         }
         if(visualizerCanvas) {
             const canvasCtx = visualizerCanvas.getContext('2d');
@@ -771,14 +772,14 @@
                 body: formData,
             });
 
-            messagesContainer.removeChild(loadingMessage); 
+            messagesContainer.removeChild(loadingMessage); // Quitar mensaje de carga
 
             if (response.ok) {
                 const data = await response.json();
                 if (data.status === 'ok' && data.transcription) {
                     textarea.value = data.transcription.trim();
                     if (textarea.value) {
-                        sendMessage(textarea.value); 
+                        sendMessage(textarea.value); // Envía el texto transcrito
                     } else {
                         const emptyMessage = createMessageElement(translations[langCode].micUnsupported + " No se detectó voz.", 'bot');
                         messagesContainer.appendChild(emptyMessage);
@@ -817,6 +818,7 @@
             }
         }
         
+        // Actualiza la UI
         isRecording = false;
         micButton.innerHTML = micSVG;
         micButton.classList.remove('recording');
@@ -877,25 +879,114 @@
 
     const useNativeSpeechRecognition = ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 
-    // --- CORRECCIÓN: DECIDIMOS USAR SIEMPRE MEDIARECORDER ---
-    // if (useNativeSpeechRecognition) { ... } else { ... }
-    // Asignamos directamente las funciones de MediaRecorder para todos
-    
-    window.startVoiceRecording = startMediaRecording;
-    window.stopVoiceRecording = stopMediaRecording;
-    
-    // Si la API Nativa existe, la deshabilitamos por si acaso
     if (useNativeSpeechRecognition) {
-        recognition = null; // Nos aseguramos de no usarla
+        // --- NAVEGADORES COMPATIBLES: USAR API NATIVA ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.lang = langCodes[currentLang]; // Usa el idioma actual
+        recognition.continuous = true; // Intenta mantener la escucha
+        recognition.interimResults = true;
+        
+        recognition.onresult = (event) => { 
+            let finalTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript + ' ';
+                } 
+            }
+            if (finalTranscript) {
+                textarea.value += finalTranscript; // Acumula resultados finales
+                textarea.style.height = 'auto';
+                const newHeight = Math.min(textarea.scrollHeight, 150);
+                textarea.style.height = `${newHeight}px`;
+            }
+        };
+        
+        recognition.onerror = (event) => {
+             console.error('Speech recognition error:', event.error);
+            // Intenta reiniciar si el error no es grave y sigue grabando
+            if (isRecording && event.error !== 'no-speech' && event.error !== 'aborted') {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    console.error("Error al reiniciar recognition:", e);
+                    window.stopVoiceRecording(); // Usar la función global para detener
+                }
+            } else {
+                 window.stopVoiceRecording(); // Detener en otros errores
+            }
+        };
+
+        recognition.onend = () => {
+             if (isRecording) {
+                 // Si isRecording es true, significa que se detuvo inesperadamente
+                 try {
+                     recognition.start(); // Intenta reiniciar
+                 } catch (e) {
+                     console.error("Error al reiniciar recognition en onend:", e);
+                     window.stopVoiceRecording(); // Detener si falla el reinicio
+                 }
+            } else if (shouldSendMessageAfterStop) {
+                // Si se detuvo para enviar
+                const message = textarea.value.trim();
+                if (message) {
+                    sendMessage(message);
+                    textarea.value = '';
+                    textarea.style.height = 'auto';
+                }
+                shouldSendMessageAfterStop = false;
+            }
+        };
+
+        // Asigna las funciones globales para navegadores compatibles
+        window.startVoiceRecording = () => {
+            if (!recognition) return;
+            isRecording = true;
+            chatInputContainer.classList.add('is-recording');
+            micButton.classList.add('recording');
+            micButton.innerHTML = stopSVG;
+            recognition.lang = langCodes[currentLang];
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error("Error al iniciar recognition:", e);
+                window.stopVoiceRecording(); // Usa la función global
+            }
+            startAudioVisualizer(null); // API Nativa no necesita pasar el stream
+        };
+
+        window.stopVoiceRecording = () => {
+            if (!recognition) return;
+            isRecording = false; // Marcar como no grabando ANTES de llamar a stop()
+            chatInputContainer.classList.remove('is-recording');
+            micButton.classList.remove('recording');
+            micButton.innerHTML = micSVG;
+            try {
+                recognition.stop();
+            } catch (e) {
+                console.error("Error al detener recognition:", e);
+            }
+            stopAudioVisualizer();
+        };
+        
+    } else {
+        // --- NAVEGADORES NO COMPATIBLES (iOS/SAFARI): USAR FALLBACK ---
+        window.startVoiceRecording = startMediaRecording;
+        window.stopVoiceRecording = stopMediaRecording;
     }
 
 
     // LÓGICA FINAL DEL BOTÓN DE MICRÓFONO
     micButton.addEventListener('click', () => {
         if (isRecording) {
-            // Ya no se usa shouldSendMessageAfterStop, MediaRecorder envía al detenerse
+            // Detener grabación (API nativa o MediaRecorder)
+            // Marcar que el usuario quiere enviar después de detener (si es API nativa)
+            if (useNativeSpeechRecognition) shouldSendMessageAfterStop = true; 
             window.stopVoiceRecording(); 
         } else {
+            // Iniciar grabación (API nativa o MediaRecorder)
+            shouldSendMessageAfterStop = false; 
             window.startVoiceRecording(); 
         }
     });
@@ -946,14 +1037,22 @@
         }
     }
     
-    // Esta función ya no es necesaria
-    // function correctTextRealtime(text) { ... }
+    // Función correctTextRealtime (se mantiene por si se usa en API nativa)
+    function correctTextRealtime(text) {
+        if (!text) return '';
+        // Implementación simple de capitalización para la API nativa
+        return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase(); 
+    }
 
     privacyCheckbox.addEventListener('change', () => { newChatBtn.disabled = !privacyCheckbox.checked; });
     
     languageSelects.forEach(select => {
         select.addEventListener('change', (e) => {
             currentLang = e.target.value;
+            // Si recognition existe (API nativa), actualiza su idioma
+            if (recognition) {
+                 recognition.lang = langCodes[currentLang];
+            }
             updateUI();
         });
     });
@@ -961,8 +1060,10 @@
     newChatBtn.addEventListener('click', startNewConversation);
     
     sendButton.addEventListener('click', () => {
-        // Solo envía texto si no está grabando
-        if (!isRecording) {
+        if (isRecording) {
+            shouldSendMessageAfterStop = true;
+            window.stopVoiceRecording(); 
+        } else {
             const message = textarea.value.trim();
             if (message) sendMessage(message);
         }
@@ -971,7 +1072,10 @@
     textarea.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-             if (!isRecording) {
+             if (isRecording) {
+                shouldSendMessageAfterStop = true;
+                window.stopVoiceRecording();
+            } else {
                 const message = textarea.value.trim();
                 if (message) sendMessage(message);
             }
